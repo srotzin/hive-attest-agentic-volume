@@ -9,6 +9,7 @@
  */
 
 import express           from 'express';
+import { applyLoyaltyDiscount, buildLoyaltyChallenge } from './lib/loyalty.js';
 import { createHash, randomUUID }    from 'crypto';
 import { appendFileSync } from 'fs';
 import { readFile }      from 'fs/promises';
@@ -59,26 +60,27 @@ async function initKeys() {
   }
 }
 
-// ── 402 challenge builder ─────────────────────────────────────────────────────
-function build402Challenge(req, tier) {
-  const isAudit = tier === 'audit';
-  const amount  = isAudit ? PRICE_AUDIT : PRICE_STANDARD;
-  const desc    = isAudit
+// ── 402 challenge builder (Rail 3 loyalty-aware) ──────────────────────────────
+async function build402Challenge(req, res, tier) {
+  const isAudit    = tier === 'audit';
+  const baseAmount = isAudit ? Number(PRICE_AUDIT) : Number(PRICE_STANDARD);
+  const desc       = isAudit
     ? 'Audit-grade Spectral-signed attestation of agentic stablecoin volume — extended methodology disclosure.'
     : 'Spectral-signed attestation of agentic stablecoin volume.';
 
+  // Rail 3: apply loyalty discount
+  const loyalty = await applyLoyaltyDiscount(req, res, baseAmount);
+
   return {
-    scheme:             'exact',
-    network:            'base',
-    asset:              'USDC',
-    contract:           USDC_CONTRACT,
-    chain_id:           BASE_CHAIN_ID,
-    maxAmountRequired:  amount,
-    payTo:              MONROE,
-    resource:           `${req.protocol}://${req.get('host')}${req.originalUrl}`,
-    description:        desc,
-    mimeType:           'application/json',
-    x402Version:        1,
+    challenge: buildLoyaltyChallenge({
+      adjustedPrice:      loyalty.adjustedPrice,
+      discountAppliedBps: loyalty.discountAppliedBps,
+      resource:           `${req.protocol}://${req.get('host')}${req.originalUrl}`,
+      description:        desc,
+      chainId:            BASE_CHAIN_ID,
+    }),
+    loyalty,
+    basePriceAtomic: baseAmount,
   };
 }
 
@@ -270,9 +272,17 @@ app.post('/mcp', async (req, res) => {
     if (toolName === 'attest_volume') {
       const { merchant, period, tier, x_payment } = params?.arguments ?? {};
       if (!x_payment) {
+        // Rail 3: loyalty-aware challenge in MCP error response
+        const { challenge, loyalty } = await build402Challenge(req, res, tier);
         return res.json({
           jsonrpc: '2.0', id,
-          error: { code: 402, message: 'Payment required', data: build402Challenge(req, tier) },
+          error: {
+            code: 402,
+            message: loyalty.discountAppliedBps > 0
+              ? `Payment required. Rail 3 discount: ${loyalty.discountAppliedBps / 100}% off applied.`
+              : 'Payment required. Present X-Hive-Prior-Receipts for loyalty discount (5%/receipt, max 25%).',
+            data: challenge
+          },
         });
       }
       // Process attestation
@@ -450,14 +460,19 @@ app.get('/v1/attest/agentic-volume/:merchant/:period', bogoRedeemMiddleware, asy
 
   // ── 402 gate (BOGO bypass honored) ──────────────────────────────────────────
   if (!req._bogo_redeemed && !is402Paid(req)) {
-    const challenge = build402Challenge(req, tier);
+    // Rail 3: loyalty-aware challenge builder
+    const { challenge, loyalty } = await build402Challenge(req, res, tier);
+    const priceLabel = tier === 'audit' ? '$50.00' : '$1.00';
+    const discountNote = loyalty.discountAppliedBps > 0
+      ? ` Rail 3 receipt-gravity discount: ${loyalty.discountAppliedBps / 100}% off applied.`
+      : ' Present X-Hive-Prior-Receipts for loyalty discount (5% per receipt, max 25%).';
     res.status(402)
        .set('X-Payment-Required', 'true')
        .set('X-Price-USDC', tier === 'audit' ? '50' : '1')
        .json({
          error:          'payment_required',
          x402_challenge: challenge,
-         message:        `Payment of ${tier === 'audit' ? '$50.00' : '$1.00'} USDC required on Base mainnet. Include X-PAYMENT header with payment receipt.`,
+         message:        `Payment of ${priceLabel} USDC required on Base mainnet. Include X-PAYMENT header with payment receipt.${discountNote}`,
          bogo: {
            first_use_free: true,
            claim_endpoint: 'https://hive-gamification.onrender.com/v1/bogo/claim',
