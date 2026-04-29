@@ -9,7 +9,7 @@
  */
 
 import express           from 'express';
-import { createHash }    from 'crypto';
+import { createHash, randomUUID }    from 'crypto';
 import { appendFileSync } from 'fs';
 import { readFile }      from 'fs/promises';
 import { fileURLToPath } from 'url';
@@ -395,6 +395,45 @@ async function bogoRedeemMiddleware(req, res, next) {
   } catch (_) {}
   return next();
 }
+
+// ── GET /v1/attest/sample — Rail 2 Catnip free-read ─────────────────────────
+const _catnipStore = new Map();
+app.get('/v1/attest/sample', (req, res) => {
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'anon';
+  const now = Date.now();
+  let rec = _catnipStore.get(ip);
+  if (!rec || now > rec.resetAt) rec = { count: 0, resetAt: now + 3600000 };
+  rec.count++;
+  _catnipStore.set(ip, rec);
+  res.set('Hive-Referral-Trace', randomUUID());
+  res.set('Hive-Brand-Gold', '#C08D23');
+  res.set('X-RateLimit-Limit', '60');
+  res.set('X-RateLimit-Remaining', String(Math.max(0, 60 - rec.count)));
+  res.set('X-RateLimit-Reset', new Date(rec.resetAt).toISOString());
+  if (rec.count > 60) return res.status(429).json({ error: 'Rate limit: 60 req/IP/hour', retry_after: new Date(rec.resetAt).toISOString() });
+  const merchantId = 'did:hive:sample-merchant-a1b2c3d4';
+  const volume = 347821;
+  const txCount = 7364;
+  res.json({
+    attestation_id: `attest-${Math.random().toString(36).slice(2,10)}`,
+    schema_version: '1.0.0',
+    merchant_id: merchantId,
+    period: '2026-04',
+    agentic_volume_usdc: volume,
+    transaction_count: txCount,
+    avg_transaction_usdc: (volume / txCount).toFixed(2),
+    settlement_chain: 'base:8453',
+    confidence_score: 0.97,
+    signed_at: new Date().toISOString(),
+    methodology_url: 'https://hive-attest-agentic-volume.onrender.com/v1/attest/methodology',
+    note: 'Sample attestation — anonymized non-production data. Real audit attestations require payment.',
+    next_paid_endpoint: {
+      path: 'GET /v1/attest/agentic-volume/:merchant/:period',
+      price: '$1.00 USDC (standard) | $50.00 USDC (audit-grade)',
+      url: 'https://hive-attest-agentic-volume.onrender.com/v1/attest/agentic-volume/:merchant/:period',
+    },
+  });
+});
 
 // ── GET /v1/attest/agentic-volume/:merchant/:period ───────────────────────────
 app.get('/v1/attest/agentic-volume/:merchant/:period', bogoRedeemMiddleware, async (req, res) => {
