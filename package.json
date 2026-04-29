@@ -1,0 +1,36 @@
+{
+  "name": "hive-attest-agentic-volume",
+  "version": "1.0.0",
+  "description": "Spectral-signed, audit-grade attestations of agentic stablecoin transaction volume by merchant. Pairs with USPTO #19.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev":   "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "undici":  "^6.19.2"
+  },
+  "keywords": [
+    "hive",
+    "mcp",
+    "x402",
+    "attestation",
+    "spectral",
+    "ed25519",
+    "stablecoin",
+    "agent",
+    "usdc",
+    "base"
+  ],
+  "author": "Steve Rotzin <steve@thehiveryiq.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/srotzin/hive-attest-agentic-volume.git"
+  }
+}

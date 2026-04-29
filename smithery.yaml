@@ -1,0 +1,89 @@
+name: hive-attest-agentic-volume
+version: 1.0.0
+description: >
+  Spectral-signed, audit-grade attestations of agentic stablecoin transaction
+  volume by merchant. Pairs with USPTO #19 Spectral Filing. Base USDC mainnet
+  x402 payment gating. ed25519 signatures verifiable by any party.
+
+author:
+  name: Steve Rotzin
+  email: steve@thehiveryiq.com
+  url: https://github.com/srotzin
+
+repository: https://github.com/srotzin/hive-attest-agentic-volume
+license: MIT
+
+server:
+  type: http
+  url: https://hive-attest-agentic-volume.onrender.com
+  transport: streamable-http
+  endpoint: /mcp
+  protocol: MCP 2024-11-05
+
+tools:
+  - name: attest_volume
+    description: >
+      Fetch a Spectral-signed, audit-grade attestation of agentic stablecoin
+      volume for a merchant over a reporting period (1h, 24h, 7d, 30d).
+      Requires x402 payment: $1 USDC standard, $50 USDC audit tier.
+    parameters:
+      - name: merchant
+        type: string
+        required: true
+        description: Merchant DID (did:web:...) or hostname
+      - name: period
+        type: string
+        required: true
+        enum: [1h, 24h, 7d, 30d]
+        description: Reporting period (rolling window)
+      - name: tier
+        type: string
+        required: false
+        enum: [standard, audit]
+        default: standard
+        description: Pricing tier
+      - name: x_payment
+        type: string
+        required: true
+        description: x402 payment token (Base USDC mainnet)
+
+  - name: verify_attestation
+    description: >
+      Re-verify the ed25519 signature of a stored attestation. Returns
+      signature_valid, recomputed SHA-256, and the full envelope.
+      Public read — no payment required.
+    parameters:
+      - name: attestation_id
+        type: string
+        required: true
+        description: 32-character hex attestation ID
+
+  - name: list_periods
+    description: >
+      List supported reporting periods with current data freshness timestamps.
+      Public read — no payment required.
+    parameters: []
+
+tags:
+  - finance
+  - attestation
+  - stablecoin
+  - ed25519
+  - x402
+  - base
+  - usdc
+  - mcp
+
+capabilities:
+  - payment_required
+  - cryptographic_signatures
+  - audit_trail
+
+payment:
+  scheme: x402
+  network: base
+  asset: USDC
+  payTo: "0x15184bf50b3d3f52b60434f8942b7d52f2eb436e"
+  tiers:
+    standard: "1000000"
+    audit:    "50000000"
