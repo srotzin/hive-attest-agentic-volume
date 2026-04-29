@@ -368,8 +368,36 @@ async function buildAttestation(merchant, period, tier) {
   return envelope;
 }
 
+
+// ── BOGO redemption middleware (X-Hive-BOGO-Token) ─────────────────────────
+// Phase 1: calls hive-gamification /v1/bogo/redeem; bypasses 402 on consumed:true.
+// Phase 2 (planned): zero-trust redemption with token-bound HMAC.
+async function bogoRedeemMiddleware(req, res, next) {
+  const token = req.headers['x-hive-bogo-token'];
+  if (!token) return next();
+  try {
+    const r = await fetch('https://hive-gamification.onrender.com/v1/bogo/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, mechanic_id: 'volume-attestation' }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (r.ok) {
+      const j = await r.json();
+      if (j.consumed === true) {
+        req._bogo_redeemed = true;
+        import('fs').then(({ appendFileSync }) => {
+          try { appendFileSync('/tmp/attest_agentic_volume_bogo_redemptions.jsonl', JSON.stringify({ token: token.slice(0, 12), mechanic_id: 'volume-attestation', ts: Date.now() }) + '\n'); } catch (_) {}
+        });
+        return next();
+      }
+    }
+  } catch (_) {}
+  return next();
+}
+
 // ── GET /v1/attest/agentic-volume/:merchant/:period ───────────────────────────
-app.get('/v1/attest/agentic-volume/:merchant/:period', async (req, res) => {
+app.get('/v1/attest/agentic-volume/:merchant/:period', bogoRedeemMiddleware, async (req, res) => {
   const { merchant, period } = req.params;
   const tier = req.query.tier === 'audit' ? 'audit' : 'standard';
 
@@ -381,8 +409,8 @@ app.get('/v1/attest/agentic-volume/:merchant/:period', async (req, res) => {
     });
   }
 
-  // ── 402 gate ──────────────────────────────────────────────────────────────
-  if (!is402Paid(req)) {
+  // ── 402 gate (BOGO bypass honored) ──────────────────────────────────────────
+  if (!req._bogo_redeemed && !is402Paid(req)) {
     const challenge = build402Challenge(req, tier);
     res.status(402)
        .set('X-Payment-Required', 'true')
@@ -391,6 +419,12 @@ app.get('/v1/attest/agentic-volume/:merchant/:period', async (req, res) => {
          error:          'payment_required',
          x402_challenge: challenge,
          message:        `Payment of ${tier === 'audit' ? '$50.00' : '$1.00'} USDC required on Base mainnet. Include X-PAYMENT header with payment receipt.`,
+         bogo: {
+           first_use_free: true,
+           claim_endpoint: 'https://hive-gamification.onrender.com/v1/bogo/claim',
+           redeem_header: 'X-Hive-BOGO-Token',
+           mechanic_id: 'volume-attestation',
+         },
        });
     return;
   }
